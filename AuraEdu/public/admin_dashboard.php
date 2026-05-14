@@ -3,115 +3,85 @@ declare(strict_types=1);
 require_once __DIR__ . '/../src/bootstrap.php';
 require_admin();
 
-$message = '';
-if (isset($_GET['msg'])) {
-    if ($_GET['msg'] === 'added') $message = 'Product added successfully.';
-    if ($_GET['msg'] === 'updated') $message = 'Product updated successfully.';
-}
+$message = trim($_GET['msg'] ?? '');
+$search = trim($_GET['search'] ?? '');
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete') {
-    $productId = (int) ($_POST['product_id'] ?? 0);
-    if ($productId > 0) {
-        // The foreign key constraint ON DELETE CASCADE in `books` and `courses` will automatically delete subtype data
-        $stmt = mysqli_prepare($conn, "DELETE FROM products WHERE product_id = ?");
-        mysqli_stmt_bind_param($stmt, 'i', $productId);
+// Delete the product from the database and from the current cart session.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_product'])) {
+    $product = get_product((int) ($_POST['delete_product'] ?? 0));
+
+    if ($product) {
+        $stmt = mysqli_prepare(db(), 'DELETE FROM Product WHERE id = ?');
+        mysqli_stmt_bind_param($stmt, 'i', $product['id']);
         mysqli_stmt_execute($stmt);
         mysqli_stmt_close($stmt);
+        unset($_SESSION['cart'][(int) $product['id']]);
+        delete_product_image((string) $product['image']);
         $message = 'Product deleted successfully.';
     }
 }
 
-// Search functionality
-$search = trim($_GET['search'] ?? '');
-$query = "SELECT product_id, title, product_type, price_sar, stock_qty, product_image FROM products";
-$params = [];
-$types = '';
-
-if ($search !== '') {
-    $query .= " WHERE title LIKE ? OR short_description LIKE ?";
-    $likeSearch = "%{$search}%";
-    $params = [$likeSearch, $likeSearch];
-    $types = 'ss';
-}
-
-$query .= " ORDER BY product_id DESC";
-
-if ($types !== '') {
-    $stmt = mysqli_prepare($conn, $query);
-    mysqli_stmt_bind_param($stmt, $types, ...$params);
-    mysqli_stmt_execute($stmt);
-    $productsResult = mysqli_stmt_get_result($stmt);
-} else {
-    $productsResult = mysqli_query($conn, $query);
-}
+// Reuse the same product list helper used by the shop page.
+$products = get_products($search);
 
 require_once __DIR__ . '/includes/header.php';
 ?>
-
 <section class="card">
-  <div style="display: flex; justify-content: space-between; align-items: center;">
-    <h2>Admin Dashboard - Manage Products</h2>
-    <a class="btn" href="admin_add_product.php">Add New Product</a>
+  <div class="page-actions">
+    <h1>Admin Panel</h1>
+    <div class="button-row">
+      <a class="btn" href="admin_add_product.php">Add Product</a>
+      <a class="btn alt" href="signin.php?logout=1">Logout</a>
+    </div>
   </div>
-  
+
   <?php if ($message !== ''): ?>
-    <p class="notice" style="color: var(--primary); font-weight: bold;"><?php echo h($message); ?></p>
+    <p class="notice"><?php echo h($message); ?></p>
   <?php endif; ?>
 
-  <form method="get" action="admin_dashboard.php" style="margin-top: 20px; display: flex; gap: 10px;">
-    <input type="text" name="search" placeholder="Search by title or description..." value="<?php echo h($search); ?>" style="flex: 1;">
+  <form method="get" action="admin_dashboard.php" class="search-bar">
+    <label for="search" class="sr-only">Search products</label>
+    <input id="search" name="search" type="text" value="<?php echo h($search); ?>" placeholder="Search products">
     <button class="btn" type="submit">Search</button>
-    <?php if ($search !== ''): ?>
-      <a href="admin_dashboard.php" class="btn" style="background: var(--surface);">Clear</a>
-    <?php endif; ?>
   </form>
 </section>
 
 <section class="card">
-  <h3>Products List</h3>
-  <table class="table" style="width: 100%; margin-top: 15px;">
+  <table>
     <thead>
       <tr>
         <th>Image</th>
-        <th>Title</th>
-        <th>Type</th>
-        <th>Price (SAR)</th>
+        <th>Name</th>
+        <th>Price</th>
         <th>Stock</th>
         <th>Actions</th>
       </tr>
     </thead>
     <tbody>
-      <?php if (mysqli_num_rows($productsResult) === 0): ?>
-        <tr><td colspan="6" style="text-align: center;">No products found.</td></tr>
+      <?php if (empty($products)): ?>
+        <tr>
+          <td colspan="5">No products found.</td>
+        </tr>
       <?php else: ?>
-        <?php while ($row = mysqli_fetch_assoc($productsResult)): ?>
+        <?php foreach ($products as $product): ?>
+          <?php $image = $product['image'] !== '' ? 'assets/images/products/' . $product['image'] : 'assets/images/logo.png'; ?>
           <tr>
+            <td><img src="<?php echo h($image); ?>" alt="<?php echo h($product['name']); ?>" class="admin-thumb"></td>
+            <td><?php echo h($product['name']); ?></td>
+            <td><?php echo number_format((float) $product['price'], 2); ?> SAR</td>
+            <td><?php echo (int) $product['stock']; ?></td>
             <td>
-              <?php if ($row['product_image'] !== 'no-image.jpg'): ?>
-                <img src="assets/images/products/<?php echo h($row['product_image']); ?>" alt="Product Image" style="width: 50px; height: 50px; object-fit: cover; border-radius: 4px;">
-              <?php else: ?>
-                <div style="width: 50px; height: 50px; background: var(--surface); display: flex; align-items: center; justify-content: center; border-radius: 4px; font-size: 0.8rem;">No Img</div>
-              <?php endif; ?>
-            </td>
-            <td><?php echo h($row['title']); ?></td>
-            <td><?php echo h(ucfirst($row['product_type'])); ?></td>
-            <td class="price"><?php echo number_format((float) $row['price_sar'], 2); ?></td>
-            <td><?php echo (int) $row['stock_qty']; ?></td>
-            <td>
-              <div style="display: flex; gap: 10px;">
-                <a href="admin_edit_product.php?id=<?php echo (int) $row['product_id']; ?>" style="color: var(--primary);">Edit</a>
-                <form method="post" action="admin_dashboard.php" onsubmit="return confirm('Are you sure you want to delete this product?');">
-                  <input type="hidden" name="action" value="delete">
-                  <input type="hidden" name="product_id" value="<?php echo (int) $row['product_id']; ?>">
-                  <button type="submit" style="background: none; border: none; color: #dc3545; cursor: pointer; text-decoration: underline; padding: 0;">Delete</button>
+              <div class="table-actions">
+                <a href="admin_edit_product.php?id=<?php echo (int) $product['id']; ?>">Modify</a>
+                <form method="post" action="admin_dashboard.php?search=<?php echo urlencode($search); ?>" onsubmit="return confirm('Delete this product?');">
+                  <button type="submit" name="delete_product" value="<?php echo (int) $product['id']; ?>">Delete</button>
                 </form>
               </div>
             </td>
           </tr>
-        <?php endwhile; ?>
+        <?php endforeach; ?>
       <?php endif; ?>
     </tbody>
   </table>
 </section>
-
 <?php require_once __DIR__ . '/includes/footer.php'; ?>

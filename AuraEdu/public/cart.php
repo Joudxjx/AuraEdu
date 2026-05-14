@@ -2,110 +2,114 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../src/bootstrap.php';
 
-if (!isset($_SESSION['cart'])) {
-    $_SESSION['cart'] = [];
-}
+$message = '';
 
+// Handle cart actions on the same page.
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset($_POST['update_qty']) && is_array($_POST['qty'])) {
-        foreach ($_POST['qty'] as $productId => $qty) {
-            $productId = (int) $productId;
-            $qty = max(0, (int) $qty);
-            if ($qty === 0) {
-                unset($_SESSION['cart'][$productId]);
-            } elseif (isset($_SESSION['cart'][$productId])) {
-                $_SESSION['cart'][$productId]['qty'] = $qty;
-            }
-        }
-    }
-
     if (isset($_POST['delete_item'])) {
-        $productId = (int) $_POST['delete_item'];
-        unset($_SESSION['cart'][$productId]);
+        unset($_SESSION['cart'][(int) $_POST['delete_item']]);
+        $message = 'Product removed from cart.';
     }
 
     if (isset($_POST['clear_cart'])) {
         $_SESSION['cart'] = [];
+        $message = 'Cart cleared.';
+    }
+
+    if (isset($_POST['update_cart']) && isset($_POST['qty']) && is_array($_POST['qty'])) {
+        foreach ($_POST['qty'] as $productId => $qty) {
+            $itemMessage = '';
+            update_cart_item((int) $productId, (int) $qty, $itemMessage);
+            if ($itemMessage !== '') {
+                $message = $itemMessage;
+            }
+        }
+
+        if ($message === '') {
+            $message = 'Cart updated.';
+        }
     }
 }
 
+// Read the latest cart after any changes.
+$items = cart_items();
+
 require_once __DIR__ . '/includes/header.php';
 ?>
-<section class="container" style="margin-top: 40px; margin-bottom: 40px;">
-  <h2 style="font-size: 32px; margin-bottom: 24px;">Shopping Cart</h2>
-  <?php if (empty($_SESSION['cart'])): ?>
-    <div class="card" style="text-align: center; padding: 40px;">
-      <p style="font-size: 18px; color: var(--muted); margin-bottom: 20px;">Your cart is empty. Keep shopping to find a course or book!</p>
-      <a class="btn" href="shop.php" style="font-size: 16px; padding: 12px 24px;">Keep Shopping</a>
-    </div>
-  <?php else: ?>
-    <div style="display: flex; flex-wrap: wrap; gap: 30px;">
-      
-      <!-- Cart Items List -->
-      <div style="flex: 2; min-width: 300px;">
-        <p style="font-size: 16px; font-weight: bold; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 16px;">
-          <?php echo count($_SESSION['cart']); ?> <?php echo count($_SESSION['cart']) === 1 ? 'Item' : 'Items'; ?> in Cart
-        </p>
-        
-        <form method="post" action="cart.php" id="cart-form">
-          <div style="display: flex; flex-direction: column; gap: 16px;">
-            <?php foreach ($_SESSION['cart'] as $item): ?>
-              <div class="card" style="display: flex; gap: 16px; align-items: flex-start; padding: 16px; margin: 0; position: relative;">
-                <div style="flex: 1;">
-                  <h3 style="margin: 0 0 8px; font-size: 16px;">
-                    <a href="product_detail.php?id=<?php echo (int) $item['product_id']; ?>" style="color: var(--text); text-decoration: none;">
-                      <?php echo h($item['title']); ?>
-                    </a>
-                  </h3>
-                  <button type="submit" name="delete_item" value="<?php echo (int) $item['product_id']; ?>" class="btn-outline" style="border: none; color: var(--primary); padding: 0; font-size: 14px; cursor: pointer; text-decoration: underline;">
-                    Remove
-                  </button>
-                </div>
-                
-                <div style="text-align: right; min-width: 100px;">
-                  <p class="price" style="margin: 0 0 8px; font-size: 18px;"><?php echo number_format((float) $item['price'], 2); ?> SAR</p>
-                  <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
-                    <label for="qty_<?php echo (int) $item['product_id']; ?>" class="sr-only" aria-label="Quantity for <?php echo h($item['title']); ?>">Qty</label>
-                    <input
-                      id="qty_<?php echo (int) $item['product_id']; ?>"
-                      type="number"
-                      min="0"
-                      name="qty[<?php echo (int) $item['product_id']; ?>]"
-                      value="<?php echo (int) $item['qty']; ?>"
-                      style="width: 60px; padding: 6px; margin: 0; text-align: center;"
-                      onchange="document.getElementById('cart-form').submit();"
-                    >
-                  </div>
-                </div>
-              </div>
-            <?php endforeach; ?>
-          </div>
-          <input type="hidden" name="update_qty" value="1">
-        </form>
-        <form method="post" action="cart.php" style="margin-top: 16px;">
-          <button class="btn-outline" type="submit" name="clear_cart" style="color: #dc3545; border-color: #dc3545;">Clear All Items</button>
-        </form>
-      </div>
+<section class="card">
+  <h1>Cart</h1>
+  <?php if ($message !== ''): ?>
+    <p class="notice"><?php echo h($message); ?></p>
+  <?php endif; ?>
 
-      <!-- Checkout Summary -->
-      <div style="flex: 1; min-width: 300px; max-width: 400px;">
-        <div class="card" style="position: sticky; top: 20px;">
-          <h3 style="margin-top: 0; color: var(--muted); font-size: 16px;">Total:</h3>
-          <p class="price" style="font-size: 36px; margin: 8px 0 24px;"><?php echo number_format(cart_total(), 2); ?> SAR</p>
-          
-          <a class="btn" href="checkout.php" style="display: block; width: 100%; text-align: center; padding: 16px; font-size: 18px; margin-bottom: 16px;">
-            Checkout
-          </a>
-          
-          <hr style="border: 0; border-top: 1px solid var(--border); margin: 16px 0;">
-          
-          <p style="font-size: 12px; color: var(--muted); text-align: center; margin: 0;">
-            Secure checkout powered by AuraEdu.
-          </p>
-        </div>
+  <?php if (empty($items)): ?>
+    <p>Your cart is empty.</p>
+    <p><a class="btn" href="shop.php">Continue Shopping</a></p>
+  <?php else: ?>
+    <form method="post" action="cart.php" id="cart-form">
+      <div class="cart-list">
+        <?php foreach ($items as $item): ?>
+          <?php $image = $item['image'] !== '' ? 'assets/images/products/' . $item['image'] : 'assets/images/logo.png'; ?>
+          <div class="cart-item">
+            <img src="<?php echo h($image); ?>" alt="<?php echo h($item['name']); ?>" class="cart-thumb">
+            <div class="cart-main">
+              <h3><a href="product_detail.php?id=<?php echo (int) $item['id']; ?>"><?php echo h($item['name']); ?></a></h3>
+              <p><?php echo number_format((float) $item['price'], 2); ?> SAR</p>
+            </div>
+            <div class="cart-actions">
+              <label for="qty_<?php echo (int) $item['id']; ?>">Quantity</label>
+              <div class="quantity-picker">
+                <button type="button" class="qty-btn" data-action="decrease" data-target="qty_<?php echo (int) $item['id']; ?>" aria-label="Decrease quantity">-</button>
+                <input id="qty_<?php echo (int) $item['id']; ?>" name="qty[<?php echo (int) $item['id']; ?>]" type="number" min="0" max="<?php echo (int) ($item['stock'] ?? 0); ?>" value="<?php echo (int) $item['qty']; ?>" required>
+                <button type="button" class="qty-btn" data-action="increase" data-target="qty_<?php echo (int) $item['id']; ?>" aria-label="Increase quantity">+</button>
+              </div>
+              <button class="btn alt" type="submit" name="delete_item" value="<?php echo (int) $item['id']; ?>">Delete</button>
+            </div>
+          </div>
+        <?php endforeach; ?>
       </div>
-      
+      <div class="button-row">
+        <button class="btn" type="submit" name="update_cart" value="1">Modify Quantity</button>
+        <button class="btn alt" type="submit" name="clear_cart" value="1">Delete All</button>
+        <a class="btn" href="checkout.php">Buy</a>
+      </div>
+    </form>
+
+    <div class="card total-card">
+      <strong>Total: <?php echo number_format(cart_total(), 2); ?> SAR</strong>
     </div>
   <?php endif; ?>
 </section>
+
+<script>
+document.querySelectorAll('.qty-btn').forEach(function (button) {
+  button.addEventListener('click', function () {
+    var input = document.getElementById(button.dataset.target);
+    var min = parseInt(input.min || '0', 10);
+    var max = parseInt(input.max || '999999', 10);
+    var value = parseInt(input.value || String(min), 10);
+
+    if (button.dataset.action === 'increase') {
+      value = Math.min(max, value + 1);
+    } else {
+      value = Math.max(min, value - 1);
+    }
+
+    input.value = value;
+  });
+});
+
+document.getElementById('cart-form')?.addEventListener('submit', function (event) {
+  var fields = this.querySelectorAll('input[type="number"]');
+
+  // Make sure every quantity is a valid number.
+  for (var i = 0; i < fields.length; i += 1) {
+    if (fields[i].value === '' || parseInt(fields[i].value, 10) < 0) {
+      event.preventDefault();
+      alert('Please enter valid quantities. Use 0 to remove an item.');
+      return;
+    }
+  }
+});
+</script>
 <?php require_once __DIR__ . '/includes/footer.php'; ?>
